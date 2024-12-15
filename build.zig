@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const VERSION = "2.83.2";
 const Sample = struct {
     name: []const u8,
     files: []const []const u8,
@@ -13,6 +14,13 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const glib = buildGlib(b, target, optimize);
+    const gobject = buildGobject(b, target, optimize, glib);
+
+    const intl = buildIntl(b, target, optimize);
+    glib.linkLibrary(intl);
+
+    const pcre2 = buildPcre(b, target, optimize);
+    glib.linkLibrary(pcre2);
 
     for (SAMPLES) |sample| {
         const exe = b.addExecutable(.{
@@ -24,6 +32,7 @@ pub fn build(b: *std.Build) void {
             .files = sample.files,
         });
         exe.linkLibrary(glib);
+        exe.linkLibrary(gobject);
 
         const install = b.addInstallArtifact(exe, .{});
         const run = b.addRunArtifact(exe);
@@ -32,13 +41,74 @@ pub fn build(b: *std.Build) void {
     }
 }
 
-pub fn buildGlib(
+pub fn buildGobject(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    glib: *std.Build.Step.Compile,
+) *std.Build.Step.Compile {
+    const lib = b.addStaticLibrary(.{
+        .name = "gobject",
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    lib.addCSourceFiles(.{
+        .root = b.path("gobject"),
+        .files = &GOBJECT_SRCS,
+        .flags = &.{
+            "-DGOBJECT_COMPILATION",
+            "-Wno-macro-redefined",
+        },
+    });
+    lib.addIncludePath(b.path(""));
+    // config.h
+    lib.addIncludePath(b.path("generated"));
+    // glibconfig.h
+    lib.addIncludePath(b.path("generated/glib"));
+    lib.addIncludePath(b.path("glib"));
+
+    const gobject_visibility_h = blk: {
+        const run = b.addSystemCommand(&.{"py"});
+        run.addFileArg(b.path("tools/gen-visibility-macros.py"));
+        run.addArg(VERSION);
+        run.addArg("visibility-macros");
+        run.addArg("GOBJECT");
+        break :blk run.addOutputFileArg("gobject/gobject-visibility.h");
+    };
+    lib.addIncludePath(gobject_visibility_h.dirname().dirname());
+    lib.installHeader(gobject_visibility_h, "gobject-visibility.h");
+
+    // glib_enumtypes_h = custom_target('glib_enumtypes_h',
+    //   output : 'glib-enumtypes.h',
+    //   capture : true,
+    //   input : glib_enumtypes_input_headers,
+    //   install : true,
+    //   install_dir : join_paths(get_option('includedir'), 'glib-2.0/gobject'),
+    //   install_tag: 'devel',
+    //   command : [python, glib_mkenums,
+    //              '--template', files('glib-enumtypes.h.template'),
+    //              '@INPUT@'])
+
+    // glib_enumtypes_c = custom_target('glib_enumtypes_c',
+    //   output : 'glib-enumtypes.c',
+    //   capture : true,
+    //   input : glib_enumtypes_input_headers,
+    //   depends : [glib_enumtypes_h],
+    //   command : [python, glib_mkenums,
+    //              '--template', files('glib-enumtypes.c.template'),
+    //              '@INPUT@'])
+
+    lib.linkLibrary(glib);
+
+    return lib;
+}
+
+fn buildGlib(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) *std.Build.Step.Compile {
-    const version = "2.83.2";
-
     const lib = b.addStaticLibrary(.{
         .name = "glib",
         .target = target,
@@ -50,10 +120,13 @@ pub fn buildGlib(
         .files = &GLIB_SRCS,
         .flags = &.{
             "-DGLIB_COMPILATION",
+            "-Wno-macro-redefined",
         },
     });
 
+    // config.h
     lib.addIncludePath(b.path("generated"));
+    // glibconfig.h
     lib.addIncludePath(b.path("generated/glib"));
     lib.installHeader(b.path("generated/glib/glibconfig.h"), "glibconfig.h");
     lib.addIncludePath(b.path("generated/glib/gnulib"));
@@ -61,7 +134,7 @@ pub fn buildGlib(
     const gversionmacros_h = blk: {
         const run = b.addSystemCommand(&.{"py"});
         run.addFileArg(b.path("tools/gen-visibility-macros.py"));
-        run.addArg(version);
+        run.addArg(VERSION);
         run.addArg("versions-macros");
         run.addFileArg(b.path("glib/gversionmacros.h.in"));
         break :blk run.addOutputFileArg("glib/gversionmacros.h");
@@ -72,7 +145,7 @@ pub fn buildGlib(
     const glib_visibility_h = blk: {
         const run = b.addSystemCommand(&.{"py"});
         run.addFileArg(b.path("tools/gen-visibility-macros.py"));
-        run.addArg(version);
+        run.addArg(VERSION);
         run.addArg("visibility-macros");
         run.addArg("GLIB");
         break :blk run.addOutputFileArg("glib/glib-visibility.h");
@@ -84,12 +157,6 @@ pub fn buildGlib(
     lib.addIncludePath(b.path(""));
     lib.addIncludePath(b.path("glib"));
     lib.addIncludePath(b.path("glib/gnulib"));
-
-    const intl = buildIntl(b, target, optimize);
-    lib.linkLibrary(intl);
-
-    const pcre2 = buildPcre(b, target, optimize);
-    lib.linkLibrary(pcre2);
 
     return lib;
 }
@@ -314,4 +381,27 @@ const GLIB_SRCS = [_][]const u8{
     "gnulib/isnanl.c",
 
     "libcharset/localcharset.c",
+};
+
+const GOBJECT_SRCS = [_][]const u8{
+    "gatomicarray.c",
+    "gbinding.c",
+    "gbindinggroup.c",
+    "gboxed.c",
+    "gclosure.c",
+    "genums.c",
+    "gmarshal.c",
+    "gobject.c",
+    "gparam.c",
+    "gparamspecs.c",
+    "gsignal.c",
+    "gsignalgroup.c",
+    "gsourceclosure.c",
+    "gtype.c",
+    "gtypemodule.c",
+    "gtypeplugin.c",
+    "gvalue.c",
+    "gvaluearray.c",
+    "gvaluetransform.c",
+    "gvaluetypes.c",
 };
