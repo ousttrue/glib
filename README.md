@@ -16,7 +16,13 @@ The official web site is:
 A experimental `zig cc` build by build.zig
 
 ```sh
-> zig build
+> zig build run-glib
+```
+
+https://toshiocp.github.io/Gobject-tutorial/sec2.html
+
+```sh
+> zig build run-gobject
 ```
 
 ## Installation

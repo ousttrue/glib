@@ -1,24 +1,35 @@
 const std = @import("std");
 
+const Sample = struct {
+    name: []const u8,
+    files: []const []const u8,
+};
+const SAMPLES = [_]Sample{
+    .{ .name = "glib", .files = &.{"src/main.c"} },
+    .{ .name = "gobject", .files = &.{"src/example1.c"} },
+};
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-
-    const exe = b.addExecutable(.{
-        .name = "hello_glib",
-        .target = target,
-        .optimize = optimize,
-    });
-    b.installArtifact(exe);
-
-    exe.addCSourceFiles(.{
-        .files = &.{
-            "src/main.c",
-        },
-    });
-
     const glib = buildGlib(b, target, optimize);
-    exe.linkLibrary(glib);
+
+    for (SAMPLES) |sample| {
+        const exe = b.addExecutable(.{
+            .name = sample.name,
+            .target = target,
+            .optimize = optimize,
+        });
+        exe.addCSourceFiles(.{
+            .files = sample.files,
+        });
+        exe.linkLibrary(glib);
+
+        const install = b.addInstallArtifact(exe, .{});
+        const run = b.addRunArtifact(exe);
+        run.step.dependOn(&install.step);
+        b.step(b.fmt("run-{s}", .{sample.name}), b.fmt("run {s}", .{sample.name})).dependOn(&run.step);
+    }
 }
 
 pub fn buildGlib(
