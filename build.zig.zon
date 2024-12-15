@@ -1,0 +1,15 @@
+.{
+    .name = "glib",
+    .version = "0.0.0",
+    .dependencies = .{
+        .libintl = .{
+            .url = "git+https://github.com/frida/proxy-libintl.git#33934de09af6a6627eb44e310a8079df009abdbb",
+            .hash = "12201dac36c70901d2ce7545fe29baa08d57b5f2536b2502d12fbf19e46b7804b811",
+        },
+        .pcre2 = .{
+            .url = "git+https://github.com/PCRE2Project/pcre2.git#a2a3a6e6f5b9b462bae80cacdb683b0b68292ec7",
+            .hash = "12209507c3ddb6bdedb23ced8a5bb7f5227173f6820595769faa427b7e379e83e6cb",
+        },
+    },
+    .paths = .{""},
+}

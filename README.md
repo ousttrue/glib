@@ -6,10 +6,18 @@ wrappers, and interfaces for such runtime functionality as an event loop,
 threads, dynamic loading, and an object system.
 
 The official download locations are:
-  <https://download.gnome.org/sources/glib>
+<https://download.gnome.org/sources/glib>
 
 The official web site is:
-  <https://www.gtk.org/>
+<https://www.gtk.org/>
+
+## build.zig
+
+A experimental `zig cc` build by build.zig
+
+```sh
+> zig build
+```
 
 ## Installation
 
@@ -29,10 +37,11 @@ See [SECURITY.md](SECURITY.md) for more details.
 ## Documentation
 
 API documentation is available online for GLib for the:
- * [GLib](https://docs.gtk.org/glib/)
- * [GObject](https://docs.gtk.org/gobject/)
- * [GModule](https://docs.gtk.org/gmodule/)
- * [GIO](https://docs.gtk.org/gio/)
+
+- [GLib](https://docs.gtk.org/glib/)
+- [GObject](https://docs.gtk.org/gobject/)
+- [GModule](https://docs.gtk.org/gmodule/)
+- [GIO](https://docs.gtk.org/gio/)
 
 ## Discussion
 
@@ -52,19 +61,19 @@ how to use it. To ask questions, use one of our [discussion forums](#discussion)
 
 In bug reports please include:
 
-* Information about your system. For instance:
-  * What operating system and version
-  * For Linux, what version of the C library
-  * And anything else you think is relevant.
-* How to reproduce the bug.
-  * If you can reproduce it with one of the test programs that are built
-  in the `tests/` subdirectory, that will be most convenient.  Otherwise,
-  please include a short test program that exhibits the behavior.
-  As a last resort, you can also provide a pointer to a larger piece
-  of software that can be downloaded.
-* If the bug was a crash, the exact text that was printed out
+- Information about your system. For instance:
+  - What operating system and version
+  - For Linux, what version of the C library
+  - And anything else you think is relevant.
+- How to reproduce the bug.
+  - If you can reproduce it with one of the test programs that are built
+    in the `tests/` subdirectory, that will be most convenient. Otherwise,
+    please include a short test program that exhibits the behavior.
+    As a last resort, you can also provide a pointer to a larger piece
+    of software that can be downloaded.
+- If the bug was a crash, the exact text that was printed out
   when the crash occurred.
-* Further information such as stack traces may be useful, but
+- Further information such as stack traces may be useful, but
   is not necessary.
 
 ## Contributing to GLib
@@ -76,10 +85,10 @@ Patches should be [submitted as merge requests](https://gitlab.gnome.org/GNOME/g
 to gitlab.gnome.org. Note that you will need to be logged in to the site to use
 this page. If the patch fixes an existing issue, please refer to the
 issue in your commit message with the following notation (for issue 123):
+
 ```
 Closes: #123
 ```
 
 Otherwise, create a new merge request that introduces the change. Filing a
 separate issue is not required.
-
