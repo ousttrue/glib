@@ -8,10 +8,12 @@ const Sample = struct {
 const SAMPLES = [_]Sample{
     .{ .name = "glib", .files = &.{"src/main.c"} },
     .{ .name = "gobject", .files = &.{"src/example1.c"} },
+    .{ .name = "gio", .files = &.{"src/hello-gio.c"} },
 };
 const FLAGS = [_][]const u8{
     "-DPCRE2_CODE_UNIT_WIDTH=8",
     "-DPCRE2_STATIC",
+    "-Wno-macro-redefined",
 };
 
 pub fn build(b: *std.Build) void {
@@ -23,15 +25,20 @@ pub fn build(b: *std.Build) void {
     const libffi = buildFfi(b, target, optimize);
 
     const glib = buildGlib(b, target, optimize);
-
+    b.installArtifact(glib);
     glib.linkLibrary(libintl);
     glib.linkLibrary(pcre2);
 
     const gobject = buildGobject(b, target, optimize);
+    b.installArtifact(gobject);
     gobject.linkLibrary(glib);
     gobject.linkLibrary(libintl);
     gobject.linkLibrary(libffi);
     gobject.linkLibrary(pcre2);
+
+    const gio = buildGio(b, target, optimize);
+    gio.linkLibrary(glib);
+    gio.linkLibrary(gobject);
 
     for (SAMPLES) |sample| {
         const exe = b.addExecutable(.{
@@ -45,6 +52,7 @@ pub fn build(b: *std.Build) void {
         });
         exe.linkLibrary(glib);
         exe.linkLibrary(gobject);
+        exe.linkLibrary(gio);
         exe.addIncludePath(glib.getEmittedIncludeTree().path(b, "glib"));
 
         const install = b.addInstallArtifact(exe, .{});
@@ -52,6 +60,48 @@ pub fn build(b: *std.Build) void {
         run.step.dependOn(&install.step);
         b.step(b.fmt("run-{s}", .{sample.name}), b.fmt("run {s}", .{sample.name})).dependOn(&run.step);
     }
+}
+
+pub fn buildGio(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Step.Compile {
+    const lib = b.addStaticLibrary(.{
+        .name = "gio",
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    lib.addCSourceFiles(.{
+        .root = b.path("gio"),
+        .files = &GIO_SRCS,
+        .flags = &(.{
+            "-DGIO_COMPILATION",
+        } ++ FLAGS),
+    });
+    lib.addIncludePath(b.path(""));
+    lib.addIncludePath(b.path("gio"));
+    // <glib-object.h>
+    lib.addIncludePath(b.path("glib"));
+    // config.h
+    lib.addIncludePath(b.path("generated"));
+
+    lib.installHeader(b.path("generated/gio/gio-enumtypes.h"), "gio/gio-enumtypes.h");
+    lib.installHeadersDirectory(b.path("gio"), "gio", .{});
+
+    const gio_visibility_h = blk: {
+        const run = b.addSystemCommand(&.{"py"});
+        run.addFileArg(b.path("tools/gen-visibility-macros.py"));
+        run.addArg(VERSION);
+        run.addArg("visibility-macros");
+        run.addArg("GIO");
+        break :blk run.addOutputFileArg("gio/gio-visibility.h");
+    };
+    lib.addIncludePath(gio_visibility_h.dirname().dirname());
+    lib.installHeader(gio_visibility_h, "gio/gio-visibility.h");
+
+    return lib;
 }
 
 pub fn buildGobject(
@@ -70,15 +120,15 @@ pub fn buildGobject(
         .files = &GOBJECT_SRCS,
         .flags = &(.{
             "-DGOBJECT_COMPILATION",
-            "-Wno-macro-redefined",
         } ++ FLAGS),
     });
     lib.addIncludePath(b.path(""));
+    // <glib-object.h>
+    lib.addIncludePath(b.path("glib"));
     // config.h
     lib.addIncludePath(b.path("generated"));
     // glibconfig.h
     lib.addIncludePath(b.path("generated/glib"));
-    lib.addIncludePath(b.path("glib"));
 
     const gobject_visibility_h = blk: {
         const run = b.addSystemCommand(&.{"py"});
@@ -132,7 +182,6 @@ fn buildGlib(
         .files = &GLIB_SRCS,
         .flags = &(.{
             "-DGLIB_COMPILATION",
-            "-Wno-macro-redefined",
         } ++ FLAGS),
     });
 
@@ -458,4 +507,136 @@ const GOBJECT_SRCS = [_][]const u8{
     "gvaluearray.c",
     "gvaluetransform.c",
     "gvaluetypes.c",
+};
+
+const GIO_SRCS = [_][]const u8{
+    "gappinfo.c",
+    "gasynchelper.c",
+    "gasyncinitable.c",
+    "gasyncresult.c",
+    "gbufferedinputstream.c",
+    "gbufferedoutputstream.c",
+    "gbytesicon.c",
+    "gcancellable.c",
+    "gcharsetconverter.c",
+    "gcontenttype.c",
+    "gcontextspecificgroup.c",
+    "gconverter.c",
+    "gconverterinputstream.c",
+    "gconverteroutputstream.c",
+    "gcredentials.c",
+    "gdatagrambased.c",
+    "gdatainputstream.c",
+    "gdataoutputstream.c",
+    "gdebugcontroller.c",
+    "gdebugcontrollerdbus.c",
+    "gdrive.c",
+    "gdummyfile.c",
+    "gdummyproxyresolver.c",
+    "gdummytlsbackend.c",
+    "gemblem.c",
+    "gemblemedicon.c",
+    "gfile.c",
+    "gfileattribute.c",
+    "gfileenumerator.c",
+    "gfileicon.c",
+    "gfileinfo.c",
+    "gfileinputstream.c",
+    "gfilemonitor.c",
+    "gfilenamecompleter.c",
+    "gfileoutputstream.c",
+    "gfileiostream.c",
+    "gfilterinputstream.c",
+    "gfilteroutputstream.c",
+    "gicon.c",
+    "ginetaddress.c",
+    "ginetaddressmask.c",
+    "ginetsocketaddress.c",
+    "ginitable.c",
+    "ginputstream.c",
+    "gioerror.c",
+    "giomodule.c",
+    "giomodule-priv.c",
+    "gioscheduler.c",
+    "giostream.c",
+    "gloadableicon.c",
+    "gmarshal-internal.c",
+    "gmount.c",
+    "gmemorymonitor.c",
+    "gmemorymonitordbus.c",
+    "gmemoryinputstream.c",
+    "gmemoryoutputstream.c",
+    "gmountoperation.c",
+    "gnativesocketaddress.c",
+    "gnativevolumemonitor.c",
+    "gnetworkaddress.c",
+    "gnetworking.c",
+    "gnetworkmonitor.c",
+    "gnetworkmonitorbase.c",
+    "gnetworkservice.c",
+    "goutputstream.c",
+    "gpermission.c",
+    "gpollableinputstream.c",
+    "gpollableoutputstream.c",
+    "gpollableutils.c",
+    "gpollfilemonitor.c",
+    "gpowerprofilemonitor.c",
+    "gpowerprofilemonitordbus.c",
+    "gproxy.c",
+    "gproxyaddress.c",
+    "gproxyaddressenumerator.c",
+    "gproxyresolver.c",
+    "gresolver.c",
+    "gresource.c",
+    "gresourcefile.c",
+    "gseekable.c",
+    "gsimpleasyncresult.c",
+    "gsimpleiostream.c",
+    "gsimplepermission.c",
+    "gsimpleproxyresolver.c",
+    "gsocket.c",
+    "gsocketaddress.c",
+    "gsocketaddressenumerator.c",
+    "gsocketclient.c",
+    "gsocketconnectable.c",
+    "gsocketconnection.c",
+    "gsocketcontrolmessage.c",
+    "gsocketinputstream.c",
+    "gsocketlistener.c",
+    "gsocketoutputstream.c",
+    "gsocketservice.c",
+    "gsrvtarget.c",
+    "gsubprocesslauncher.c",
+    "gsubprocess.c",
+    "gtask.c",
+    "gtcpconnection.c",
+    "gtcpwrapperconnection.c",
+    "gthemedicon.c",
+    "gthreadedsocketservice.c",
+    "gthreadedresolver.c",
+    "gthreadedresolver.h",
+    "gtlsbackend.c",
+    "gtlscertificate.c",
+    "gtlsclientconnection.c",
+    "gtlsconnection.c",
+    "gtlsdatabase.c",
+    "gtlsfiledatabase.c",
+    "gtlsinteraction.c",
+    "gtlspassword.c",
+    "gtlsserverconnection.c",
+    "gdtlsconnection.c",
+    "gdtlsclientconnection.c",
+    "gdtlsserverconnection.c",
+    "gunionvolumemonitor.c",
+    "gunixconnection.c",
+    "gunixfdlist.c",
+    "gunixcredentialsmessage.c",
+    "gunixsocketaddress.c",
+    "gvfs.c",
+    "gvolume.c",
+    "gvolumemonitor.c",
+    "gzlibcompressor.c",
+    "gzlibdecompressor.c",
+    // "glistmodel.c",
+    "gliststore.c",
 };
