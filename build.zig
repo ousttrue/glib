@@ -23,6 +23,7 @@ pub fn build(b: *std.Build) void {
     const libintl = buildIntl(b, target, optimize);
     const pcre2 = buildPcre(b, target, optimize);
     const libffi = buildFfi(b, target, optimize);
+    const zlib = buildZlib(b, target, optimize);
 
     const glib = buildGlib(b, target, optimize);
     b.installArtifact(glib);
@@ -36,9 +37,23 @@ pub fn build(b: *std.Build) void {
     gobject.linkLibrary(libffi);
     gobject.linkLibrary(pcre2);
 
+    const gmodule = buildGmodule(b, target, optimize);
+    gmodule.linkLibrary(glib);
+
     const gio = buildGio(b, target, optimize);
     gio.linkLibrary(glib);
     gio.linkLibrary(gobject);
+    gio.linkLibrary(libintl);
+    gio.linkLibrary(gmodule);
+    gio.linkLibrary(zlib);
+    // gio.linkLibrary(gvdb);
+    gio.addIncludePath(b.dependency("gvdb", .{}).path(""));
+
+    const gvdb = buildGvdb(b, target, optimize);
+    gvdb.linkLibrary(glib);
+    gvdb.linkLibrary(gobject);
+    gvdb.linkLibrary(gio);
+    gvdb.linkLibrary(gmodule);
 
     for (SAMPLES) |sample| {
         const exe = b.addExecutable(.{
@@ -53,13 +68,59 @@ pub fn build(b: *std.Build) void {
         exe.linkLibrary(glib);
         exe.linkLibrary(gobject);
         exe.linkLibrary(gio);
+        exe.linkLibrary(gmodule);
+        exe.linkLibrary(gvdb);
         exe.addIncludePath(glib.getEmittedIncludeTree().path(b, "glib"));
+        exe.addIncludePath(gmodule.getEmittedIncludeTree().path(b, "gmodule"));
 
         const install = b.addInstallArtifact(exe, .{});
         const run = b.addRunArtifact(exe);
         run.step.dependOn(&install.step);
         b.step(b.fmt("run-{s}", .{sample.name}), b.fmt("run {s}", .{sample.name})).dependOn(&run.step);
     }
+}
+
+pub fn buildGmodule(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Step.Compile {
+    const lib = b.addStaticLibrary(.{
+        .name = "gmodule",
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    lib.addCSourceFiles(.{
+        .root = b.path("gmodule"),
+        .files = &.{
+            "gmodule.c",
+        },
+        .flags = &(.{
+            // "-DGIO_COMPILATION",
+        } ++ FLAGS),
+    });
+    lib.addIncludePath(b.path(""));
+    // glib.h
+    lib.addIncludePath(b.path("glib"));
+    // config.h
+    lib.addIncludePath(b.path("generated"));
+    // gmoduleconf.h
+    lib.addIncludePath(b.path("generated/gmodule"));
+
+    const gmodule_visibility_h = blk: {
+        const run = b.addSystemCommand(&.{"py"});
+        run.addFileArg(b.path("tools/gen-visibility-macros.py"));
+        run.addArg(VERSION);
+        run.addArg("visibility-macros");
+        run.addArg("GMODULE");
+        break :blk run.addOutputFileArg("gmodule/gmodule-visibility.h");
+    };
+    lib.addIncludePath(gmodule_visibility_h.dirname().dirname());
+    lib.installHeader(gmodule_visibility_h, "gmodule/gmodule-visibility.h");
+    lib.installHeadersDirectory(b.path("gmodule"), "gmodule", .{});
+
+    return lib;
 }
 
 pub fn buildGio(
@@ -80,14 +141,26 @@ pub fn buildGio(
             "-DGIO_COMPILATION",
         } ++ FLAGS),
     });
+    lib.addCSourceFiles(.{
+        .files = &.{
+            "generated/gio/gioenumtypes.c",
+            "generated/gio/gdbus-daemon-generated.c",
+        },
+        .flags = &(.{
+            "-DGIO_COMPILATION",
+        } ++ FLAGS),
+    });
     lib.addIncludePath(b.path(""));
     lib.addIncludePath(b.path("gio"));
     // <glib-object.h>
     lib.addIncludePath(b.path("glib"));
+    // <gmodule.h>
+    lib.addIncludePath(b.path("gmodule"));
     // config.h
     lib.addIncludePath(b.path("generated"));
+    lib.addIncludePath(b.path("generated/gio"));
 
-    lib.installHeader(b.path("generated/gio/gio-enumtypes.h"), "gio/gio-enumtypes.h");
+    lib.installHeader(b.path("generated/gio/gioenumtypes.h"), "gio/gioenumtypes.h");
     lib.installHeadersDirectory(b.path("gio"), "gio", .{});
 
     const gio_visibility_h = blk: {
@@ -101,6 +174,9 @@ pub fn buildGio(
     lib.addIncludePath(gio_visibility_h.dirname().dirname());
     lib.installHeader(gio_visibility_h, "gio/gio-visibility.h");
 
+    lib.linkSystemLibrary("Shlwapi");
+    lib.linkSystemLibrary("Iphlpapi");
+    lib.linkSystemLibrary("Dnsapi");
     return lib;
 }
 
@@ -378,6 +454,71 @@ fn buildPcre(
     });
     return lib;
 }
+
+fn buildZlib(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Step.Compile {
+    const dep = b.dependency("zlib", .{});
+    const lib = b.addStaticLibrary(.{
+        .name = "zlib",
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    lib.addIncludePath(dep.path(""));
+    lib.installHeader(dep.path("zconf.h"), "zconf.h");
+    lib.installHeader(dep.path("zlib.h"), "zlib.h");
+    lib.addCSourceFiles(.{
+        .root = dep.path(""),
+        .files = &.{
+            "adler32.c",
+            "compress.c",
+            "crc32.c",
+            "deflate.c",
+            "gzclose.c",
+            "gzlib.c",
+            "gzread.c",
+            "gzwrite.c",
+            "inflate.c",
+            "infback.c",
+            "inftrees.c",
+            "inffast.c",
+            "trees.c",
+            "uncompr.c",
+            "zutil.c",
+        },
+    });
+    return lib;
+}
+
+fn buildGvdb(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Step.Compile {
+    const dep = b.dependency("gvdb", .{});
+    const lib = b.addStaticLibrary(.{
+        .name = "gvdb",
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    lib.addIncludePath(b.path(""));
+    lib.addIncludePath(b.path("glib"));
+    lib.addIncludePath(b.path("gmodule"));
+    lib.addIncludePath(b.path("generated"));
+    lib.addCSourceFiles(.{
+        .root = dep.path(""),
+        .files = &.{
+            "gvdb/gvdb-builder.c",
+            "gvdb/gvdb-reader.c",
+        },
+    });
+    return lib;
+}
+
 const GLIB_SRCS = [_][]const u8{
     "garcbox.c",
     "garray.c",
@@ -639,4 +780,101 @@ const GIO_SRCS = [_][]const u8{
     "gzlibdecompressor.c",
     // "glistmodel.c",
     "gliststore.c",
+
+    "ghttpproxy.c",
+    "glocalfile.c",
+    "glocalfileenumerator.c",
+    "glocalfileinfo.c",
+    "glocalfileinputstream.c",
+    "glocalfilemonitor.c",
+    "glocalfileoutputstream.c",
+    "glocalfileiostream.c",
+    "glocalvfs.c",
+    "gsocks4proxy.c",
+    "gsocks4aproxy.c",
+    "gsocks5proxy.c",
+    "thumbnail-verify.c",
+
+    "gcontenttype-win32.c",
+    "gwin32appinfo.c",
+    "gmemorymonitorwin32.c",
+    "gregistrysettingsbackend.c",
+    "gwin32registrykey.c",
+    "gwin32mount.c",
+    "gwin32volumemonitor.c",
+    "gwin32inputstream.c",
+    "gwin32outputstream.c",
+    "gwin32file-sync-stream.c",
+    "gwin32packageparser.c",
+    "gwin32networkmonitor.c",
+    "gwin32networkmonitor.h",
+    "gwin32notificationbackend.c",
+    "gwin32sid.c",
+    "gwin32sid.h",
+
+    "win32/gwin32fsmonitorutils.c",
+    "win32/gwin32filemonitor.c",
+    "win32/gwinhttpvfs.c",
+    "win32/gwinhttpfile.c",
+    "win32/gwinhttpfileinputstream.c",
+    "win32/gwinhttpfileoutputstream.c",
+
+    "gdelayedsettingsbackend.c",
+    "gkeyfilesettingsbackend.c",
+    "gmemorysettingsbackend.c",
+    "gnullsettingsbackend.c",
+    "gsettingsbackend.c",
+    "gsettingsschema.c",
+    "gsettings-mapping.c",
+    "gsettings.c",
+
+    "gapplication.c",
+    "gapplicationcommandline.c",
+    "gapplicationimpl-dbus.c",
+
+    "gactiongroup.c",
+    "gactionmap.c",
+    "gsimpleactiongroup.c",
+    "gremoteactiongroup.c",
+    "gactiongroupexporter.c",
+    "gdbusactiongroup.c",
+    "gaction.c",
+    "gpropertyaction.c",
+    "gsimpleaction.c",
+
+    "gmenumodel.c",
+    "gmenu.c",
+    "gmenuexporter.c",
+    "gdbusmenumodel.c",
+    "gnotification.c",
+    "gnotificationbackend.c",
+
+    "gdbusutils.c",
+    "gdbusaddress.c",
+    "gdbusauthobserver.c",
+    "gdbusauth.c",
+    "gdbusauthmechanism.c",
+    "gdbusauthmechanismanon.c",
+    "gdbusauthmechanismexternal.c",
+    "gdbusauthmechanismsha1.c",
+    "gdbuserror.c",
+    "gdbusconnection.c",
+    "gdbusmessage.c",
+    "gdbusnameowning.c",
+    "gdbusnamewatching.c",
+    "gdbusproxy.c",
+    "gdbusprivate.c",
+    "gdbusintrospection.c",
+    "gdbusmethodinvocation.c",
+    "gdbusserver.c",
+    "gdbusinterface.c",
+    "gdbusinterfaceskeleton.c",
+    "gdbusobject.c",
+    "gdbusobjectskeleton.c",
+    "gdbusobjectproxy.c",
+    "gdbusobjectmanager.c",
+    "gdbusobjectmanagerclient.c",
+    "gdbusobjectmanagerserver.c",
+    "gtestdbus.c",
+    "gdbusdaemon.c",
 };
