@@ -1,4 +1,4 @@
-#include <glib-object.h>
+#include <glib/glib-object.h>
 
 int
 main (int argc, char **argv)

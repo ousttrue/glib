@@ -9,18 +9,29 @@ const SAMPLES = [_]Sample{
     .{ .name = "glib", .files = &.{"src/main.c"} },
     .{ .name = "gobject", .files = &.{"src/example1.c"} },
 };
+const FLAGS = [_][]const u8{
+    "-DPCRE2_CODE_UNIT_WIDTH=8",
+    "-DPCRE2_STATIC",
+};
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const glib = buildGlib(b, target, optimize);
-    const gobject = buildGobject(b, target, optimize, glib);
 
-    const intl = buildIntl(b, target, optimize);
-    glib.linkLibrary(intl);
-
+    const libintl = buildIntl(b, target, optimize);
     const pcre2 = buildPcre(b, target, optimize);
+    const libffi = buildFfi(b, target, optimize);
+
+    const glib = buildGlib(b, target, optimize);
+
+    glib.linkLibrary(libintl);
     glib.linkLibrary(pcre2);
+
+    const gobject = buildGobject(b, target, optimize);
+    gobject.linkLibrary(glib);
+    gobject.linkLibrary(libintl);
+    gobject.linkLibrary(libffi);
+    gobject.linkLibrary(pcre2);
 
     for (SAMPLES) |sample| {
         const exe = b.addExecutable(.{
@@ -30,9 +41,11 @@ pub fn build(b: *std.Build) void {
         });
         exe.addCSourceFiles(.{
             .files = sample.files,
+            .flags = &FLAGS,
         });
         exe.linkLibrary(glib);
         exe.linkLibrary(gobject);
+        exe.addIncludePath(glib.getEmittedIncludeTree().path(b, "glib"));
 
         const install = b.addInstallArtifact(exe, .{});
         const run = b.addRunArtifact(exe);
@@ -45,7 +58,6 @@ pub fn buildGobject(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-    glib: *std.Build.Step.Compile,
 ) *std.Build.Step.Compile {
     const lib = b.addStaticLibrary(.{
         .name = "gobject",
@@ -56,10 +68,10 @@ pub fn buildGobject(
     lib.addCSourceFiles(.{
         .root = b.path("gobject"),
         .files = &GOBJECT_SRCS,
-        .flags = &.{
+        .flags = &(.{
             "-DGOBJECT_COMPILATION",
             "-Wno-macro-redefined",
-        },
+        } ++ FLAGS),
     });
     lib.addIncludePath(b.path(""));
     // config.h
@@ -77,7 +89,7 @@ pub fn buildGobject(
         break :blk run.addOutputFileArg("gobject/gobject-visibility.h");
     };
     lib.addIncludePath(gobject_visibility_h.dirname().dirname());
-    lib.installHeader(gobject_visibility_h, "gobject-visibility.h");
+    lib.installHeader(gobject_visibility_h, "gobject/gobject-visibility.h");
 
     // glib_enumtypes_h = custom_target('glib_enumtypes_h',
     //   output : 'glib-enumtypes.h',
@@ -89,6 +101,7 @@ pub fn buildGobject(
     //   command : [python, glib_mkenums,
     //              '--template', files('glib-enumtypes.h.template'),
     //              '@INPUT@'])
+    lib.installHeader(b.path("generated/gobject/glib-enumtypes.h"), "gobject/glib-enumtypes.h");
 
     // glib_enumtypes_c = custom_target('glib_enumtypes_c',
     //   output : 'glib-enumtypes.c',
@@ -99,8 +112,7 @@ pub fn buildGobject(
     //              '--template', files('glib-enumtypes.c.template'),
     //              '@INPUT@'])
 
-    lib.linkLibrary(glib);
-
+    lib.installHeadersDirectory(b.path("gobject"), "gobject", .{});
     return lib;
 }
 
@@ -118,10 +130,10 @@ fn buildGlib(
     lib.addCSourceFiles(.{
         .root = b.path("glib"),
         .files = &GLIB_SRCS,
-        .flags = &.{
+        .flags = &(.{
             "-DGLIB_COMPILATION",
             "-Wno-macro-redefined",
-        },
+        } ++ FLAGS),
     });
 
     // config.h
@@ -158,6 +170,36 @@ fn buildGlib(
     lib.addIncludePath(b.path("glib"));
     lib.addIncludePath(b.path("glib/gnulib"));
 
+    return lib;
+}
+
+fn buildFfi(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Step.Compile {
+    const dep = b.dependency("libffi", .{});
+    const lib = b.addStaticLibrary(.{
+        .name = "intl",
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    lib.addCSourceFiles(.{
+        .root = dep.path(""),
+        .files = &.{
+            "src/prep_cif.c",
+            "src/types.c",
+            "src/raw_api.c",
+            "src/java_raw_api.c",
+            "src/closures.c",
+            "src/x86/ffiw64.c",
+            "src/x86/win64.S",
+        },
+    });
+    lib.addIncludePath(b.path("generated"));
+    lib.addIncludePath(b.path("generated/libffi"));
+    lib.addIncludePath(dep.path("include"));
     return lib;
 }
 
@@ -234,11 +276,27 @@ fn buildPcre(
     );
     lib.addConfigHeader(config_h);
 
+    var table = b.addWriteFiles().addCopyFile(dep.path("src/pcre2_chartables.c.dist"), "pcre2_chartables.c");
+
+    const flags = [_][]const u8{
+        "-DHAVE_CONFIG_H",
+        "-D_GNU_SOURCE",
+    } ++ FLAGS;
+
+    lib.addCSourceFiles(.{
+        .root = table.dirname(),
+        .files = &.{
+            // ${PROJECT_BINARY_DIR}/pcre2_chartables.c
+            "pcre2_chartables.c",
+        },
+        .flags = &flags,
+    });
+    lib.addIncludePath(dep.path("src"));
+
     lib.addCSourceFiles(.{
         .root = dep.path("src"),
         .files = &.{
             "pcre2_auto_possess.c",
-            // ${PROJECT_BINARY_DIR}/pcre2_chartables.c
             "pcre2_chkdint.c",
             "pcre2_compile.c",
             "pcre2_compile_class.c",
@@ -267,11 +325,7 @@ fn buildPcre(
             "pcre2_valid_utf.c",
             "pcre2_xclass.c",
         },
-        .flags = &.{
-            "-DHAVE_CONFIG_H",
-            "-DPCRE2_CODE_UNIT_WIDTH=32",
-            "-DPCRE2_STATIC",
-        },
+        .flags = &flags,
     });
     return lib;
 }

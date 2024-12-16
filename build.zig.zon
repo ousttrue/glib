@@ -10,6 +10,10 @@
             .url = "git+https://github.com/PCRE2Project/pcre2.git#a2a3a6e6f5b9b462bae80cacdb683b0b68292ec7",
             .hash = "12209507c3ddb6bdedb23ced8a5bb7f5227173f6820595769faa427b7e379e83e6cb",
         },
+        .libffi = .{
+            .url = "git+https://gitlab.freedesktop.org/gstreamer/meson-ports/libffi.git#339f603ab6b90df65de5d517ae2f692c35a9cd99",
+            .hash = "1220e1878d24b5a0d18a97337363aa5d5a2be875fb2acee8d462446fef4ce06fa7b3",
+        },
     },
     .paths = .{""},
 }
