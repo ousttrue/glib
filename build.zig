@@ -38,9 +38,11 @@ pub fn build(b: *std.Build) void {
     gobject.linkLibrary(pcre2);
 
     const gmodule = buildGmodule(b, target, optimize);
+    b.installArtifact(gmodule);
     gmodule.linkLibrary(glib);
 
     const gio = buildGio(b, target, optimize);
+    b.installArtifact(gio);
     gio.linkLibrary(glib);
     gio.linkLibrary(gobject);
     gio.linkLibrary(libintl);
@@ -778,7 +780,7 @@ const GIO_SRCS = [_][]const u8{
     "gvolumemonitor.c",
     "gzlibcompressor.c",
     "gzlibdecompressor.c",
-    // "glistmodel.c",
+    "glistmodel.c",
     "gliststore.c",
 
     "ghttpproxy.c",
