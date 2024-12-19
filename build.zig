@@ -21,6 +21,8 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const libintl = buildIntl(b, target, optimize);
+    b.installArtifact(libintl);
+
     const pcre2 = buildPcre(b, target, optimize);
     const libffi = buildFfi(b, target, optimize);
     const zlib = buildZlib(b, target, optimize);
